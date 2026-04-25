@@ -1,0 +1,7 @@
+full_session_quality,days
+clean,527
+zero_volume_or_and_post_or,94
+or_clean_but_post_or_zero_volume,26
+zero_volume_post_or+missing_rth_minutes,25
+zero_volume_or_and_post_or+missing_rth_minutes,7
+short_session,7
