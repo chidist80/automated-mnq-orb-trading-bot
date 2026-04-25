@@ -1,0 +1,54 @@
+# MNQ ORB Bot — Risk Parameters
+# These are hard limits that override strategy signals
+
+account:
+  starting_balance: 2500        # $2,500 starting capital
+  currency: USD
+
+position_sizing:
+  max_contracts: 1              # Start with 1 MNQ — scale after 50+ validated trades
+  scale_up_rules:
+    min_trades: 50              # Minimum trades before considering scale-up
+    min_win_rate: 0.65          # Must maintain 65%+ win rate
+    min_profit_factor: 1.8      # Must maintain 1.8+ PF
+    max_contracts_scaled: 2     # Never exceed 2 MNQ on this account size
+
+daily_limits:
+  max_loss: -400                # Stop trading if daily P&L hits -$400
+  max_trades: 5                 # Max 5 trades per day
+  max_concurrent_positions: 1   # Only 1 position at a time
+  consecutive_loss_halt: 3      # 3 losses in a row → done for the day
+
+weekly_limits:
+  max_drawdown: -800            # Pause system if weekly drawdown hits -$800
+  review_required: true         # Manual review before reactivating
+
+# Circuit breakers
+circuit_breakers:
+  account_drawdown_pct: 0.20    # Halt if account drops 20% from peak ($500 on $2.5K)
+  connection_loss_seconds: 60   # Flatten all if data feed disconnected > 60s
+  error_threshold: 3            # 3 consecutive errors → halt and alert
+  heartbeat_interval: 30        # Health check every 30 seconds
+
+# No-trade conditions
+no_trade:
+  days:                         # Specific dates to skip
+    - "2026-01-01"              # New Year's
+    # Add FOMC dates, etc.
+  event_types:                  # Skip or reduce on these event days
+    - fomc_decision
+    - cpi_release
+    - nfp_release
+    - quad_witching
+  event_mode: alerts_only       # "skip" = no signals, "alerts_only" = signal but don't execute
+
+# Trade management
+trade_management:
+  use_bracket_orders: true      # Submit stop + target with entry as bracket
+  move_stop_to_breakeven: true  # After hitting 1:1, move stop to entry
+  breakeven_buffer: 5           # Points above entry for BE stop (cover commissions)
+
+# Execution modeling (for backtest realism)
+execution:
+  slippage_points: 1.0          # Points of adverse slippage per trade (conservative)
+  commission_per_side: 0.25     # IBKR MNQ commission per contract per side

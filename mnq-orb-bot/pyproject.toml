@@ -1,0 +1,48 @@
+[project]
+name = "mnq-orb-bot"
+version = "0.1.0"
+description = "Automated MNQ futures trading bot — ORB breakout, 9EMA continuation, Inverse ORB"
+requires-python = ">=3.11"
+dependencies = [
+    # Core
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+
+    # Indicators
+    "pandas-ta>=0.3.14",
+
+    # Backtesting
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+
+    # Broker connectivity (Phase 2+)
+    "ib_insync>=0.9.86",
+
+    # Research (lightweight)
+    "praw>=7.7",              # Reddit API — crowding monitor only
+
+    # Database
+    "supabase>=2.0",
+
+    # Bot infrastructure
+    "fastapi>=0.115",         # Webhook receiver for TradingView
+    "uvicorn>=0.32",
+    "slack-sdk>=3.33",        # Slack alerts
+
+    # Data
+    "pyarrow>=15.0",          # Parquet support
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "ipython>=8.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

@@ -1,0 +1,14 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Graphify analysis cache (regenerable from /graphify)
+.graphify_*.json
+graphify-out/
+
+# Project-internal ignores live in mnq-orb-bot/.gitignore

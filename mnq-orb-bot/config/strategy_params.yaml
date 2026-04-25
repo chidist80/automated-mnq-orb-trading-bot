@@ -1,0 +1,97 @@
+# MNQ ORB Bot — Strategy Parameters
+# All values calibrated from NeverStoppedout's approach + backtest optimisation
+# Modify via dashboard or directly — bot hot-reloads on change
+
+instrument:
+  symbol: MNQ
+  tick_size: 0.25
+  tick_value: 0.50       # $0.50 per tick
+  point_value: 2.00      # $2.00 per point (1 point = 4 ticks)
+
+opening_range:
+  period_minutes: 15     # First 15m candle defines the OR
+  start_time: "09:30"    # ET — market open
+  lock_time: "09:45"     # ET — OR is set
+  min_size_points: 20    # Skip if OR < 20 points (too tight, no room)
+  max_size_points: null   # Calculated dynamically as percentile (see inverse_orb)
+
+# Setup 1: ORB Breakout + Retest
+orb_breakout:
+  enabled: true
+  entry_method: retest   # "breakout" = enter on close beyond OR, "retest" = wait for pullback
+  retest_tolerance: 5    # Points beyond OR level to still count as retest
+  retest_timeout_bars: 8 # Max 15m bars to wait for retest after breakout (2 hours)
+  stop_method: opposite_or  # Stop at opposite side of Opening Range
+  stop_max_points: 120   # Hard cap — if OR > 120pts, skip (risk too large for account)
+  target:
+    method: partial_trail  # "fixed_rr", "trail_ema", "partial_trail"
+    fixed_rr: 1.0          # Risk:reward for fixed target
+    partial_exit_rr: 1.0   # Take 50% off at 1:1
+    trail_ema_period: 9    # Trail remainder with 9EMA
+    trail_ema_timeframe: 15m
+
+# Setup 2: 9EMA Trend Continuation
+ema_continuation:
+  enabled: true
+  ema_period: 9
+  timeframe: 15m
+  require_orb_direction: true   # Only take continuations in ORB direction
+  min_distance_from_or: 30      # Price must have moved 30+ pts from OR before pullback
+  entry_method: ema_touch       # Enter when candle wicks through 9EMA and closes back
+  stop_method: swing_low        # Below most recent swing low (for longs)
+  stop_buffer_points: 5         # Buffer below swing low
+  target:
+    method: trail_ema
+    trail_ema_period: 9
+  max_entries_per_day: 2        # Max continuation trades after initial ORB
+
+# Setup 3: Inverse ORB (Mean Reversion)
+inverse_orb:
+  enabled: true
+  wide_or_percentile: 80        # OR must be in top 20% of recent ORs
+  lookback_days: 20             # Rolling window for percentile calculation
+  entry_method: failed_breakout # Enter on candle that re-enters OR after failed breakout
+  stop_method: beyond_failed    # Stop beyond the failed breakout extreme + buffer
+  stop_buffer_points: 10
+  target:
+    method: or_midpoint         # Target midpoint of OR first, then opposite boundary
+  time_window_minutes: 60       # Only look for inverse ORB in first 60 mins after OR set
+
+# Regime filter — surgically disables high-volatility-sensitive setups when the day's
+# OR is in an extreme percentile of recent history. Added 2026-04-25 after the
+# Window #1 regime study found EMA continuation lost 10/10 trades (-$830) in the
+# Feb-Jun 2025 high-vol regime, while ORB and inverse ORB stayed robust.
+regime_filter:
+  enabled: true
+  ema_skip_or_percentile: 90    # Skip EMA continuation if today's OR >= this percentile of history
+  min_history_days: 10          # Filter activates after this many days of history (smaller = activates faster cold)
+  max_history_days: 60          # Trailing window used for the percentile calculation
+
+# Confluence filters (applied to all setups)
+confluences:
+  rsi:
+    enabled: true
+    period: 14
+    overbought: 70     # Block long entries if RSI > 70
+    oversold: 30       # Block short entries if RSI < 30
+  volume:
+    enabled: true
+    breakout_multiplier: 1.5  # Breakout candle volume must be 1.5x avg
+    lookback_bars: 20         # Average volume over last 20 bars
+  ema_slope:
+    enabled: true
+    period: 9
+    min_slope: 0.5     # Minimum slope (points/bar) to confirm trend
+  index_divergence:
+    enabled: false      # ES vs NQ divergence — enable after backtest validation
+    correlation_threshold: 0.7
+
+# Trading window
+schedule:
+  trading_start: "09:45"   # ET — after OR is set
+  trading_end: "12:00"     # ET — NeverStoppedout's implied cutoff
+  flatten_time: "15:45"    # ET — flatten all before close
+  no_trade_before_events:  # Minutes before scheduled events to halt signals
+    fomc: 30
+    cpi: 15
+    nfp: 15

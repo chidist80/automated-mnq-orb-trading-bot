@@ -1,0 +1,25 @@
+# Save to /etc/systemd/system/mnq-dispatcher.service
+# The analysis dispatcher — monitors state, triggers ruflo workflows
+# This is the bridge between the vanilla bot and the ruflo factory
+[Unit]
+Description=MNQ ORB Dispatcher (auto-debug, recalibrate, consensus eval)
+After=network-online.target mnq-bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/opt/mnq-orb-bot
+ExecStart=/opt/mnq-orb-bot/.venv/bin/python -m bot.dispatcher --daemon --interval 30
+Restart=on-failure
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/opt/mnq-orb-bot/.env
+
+# Dispatcher is non-critical — if it crashes, bot keeps trading
+# Just means auto-analysis doesn't fire until restart
+StartLimitBurst=5
+StartLimitIntervalSec=600
+
+[Install]
+WantedBy=multi-user.target

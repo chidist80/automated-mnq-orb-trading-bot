@@ -1,0 +1,23 @@
+# Save to /etc/systemd/system/mnq-bot.service
+# The trading bot — vanilla Python, no ruflo dependency
+[Unit]
+Description=MNQ ORB Trading Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/opt/mnq-orb-bot
+ExecStart=/opt/mnq-orb-bot/.venv/bin/python -m bot.main
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/opt/mnq-orb-bot/.env
+
+# Safety: auto-restart on crash, but not more than 3 times in 5 minutes
+StartLimitBurst=3
+StartLimitIntervalSec=300
+
+[Install]
+WantedBy=multi-user.target
