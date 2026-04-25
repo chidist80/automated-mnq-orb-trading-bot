@@ -122,15 +122,15 @@ def check_confluences(
         os_ = conf["rsi"].get("oversold", 30)
         
         if direction == "long":
-            results["rsi"] = rsi_val < ob
+            results["rsi"] = bool(rsi_val < ob)
         else:
-            results["rsi"] = rsi_val > os_
+            results["rsi"] = bool(rsi_val > os_)
     
     # Volume check (breakout candle should have above-average volume)
     if conf.get("volume", {}).get("enabled", True):
         vol_ratio = bar.get("volume_ratio", 1.0)
         min_ratio = conf["volume"].get("breakout_multiplier", 1.5)
-        results["volume"] = vol_ratio >= min_ratio
+        results["volume"] = bool(vol_ratio >= min_ratio)
     
     # EMA slope check — read the column matching the configured period, not a hardcoded name
     if conf.get("ema_slope", {}).get("enabled", True):
@@ -139,8 +139,8 @@ def check_confluences(
         min_slope = conf["ema_slope"].get("min_slope", 0.5)
         
         if direction == "long":
-            results["ema_slope"] = slope > min_slope
+            results["ema_slope"] = bool(slope > min_slope)
         else:
-            results["ema_slope"] = slope < -min_slope
+            results["ema_slope"] = bool(slope < -min_slope)
     
     return results

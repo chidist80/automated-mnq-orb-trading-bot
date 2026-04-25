@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def load_csv(filepath: str | Path, **kwargs) -> pd.DataFrame:
     """Load and normalize CSV data.
-    
+
     Handles common CSV formats from TradingView, NinjaTrader, and generic exports.
     Auto-detects column names and timestamp formats.
     """
@@ -27,6 +27,7 @@ def load_csv(filepath: str | Path, **kwargs) -> pd.DataFrame:
     df = _normalize_columns(df)
     df = _normalize_timestamps(df)
     df = _filter_rth(df)
+    df = _drop_invalid_or_days(df)
     df = _validate(df)
     logger.info(f"Loaded {len(df)} bars from {filepath} ({df.index[0]} to {df.index[-1]})")
     return df
@@ -38,6 +39,7 @@ def load_parquet(filepath: str | Path) -> pd.DataFrame:
     df = _normalize_columns(df)
     df = _normalize_timestamps(df)
     df = _filter_rth(df)
+    df = _drop_invalid_or_days(df)
     df = _validate(df)
     logger.info(f"Loaded {len(df)} bars from {filepath} ({df.index[0]} to {df.index[-1]})")
     return df
@@ -137,6 +139,56 @@ def _filter_rth(df: pd.DataFrame) -> pd.DataFrame:
     filtered = df[mask].copy()
     logger.debug(f"RTH filter: {len(df)} → {len(filtered)} bars")
     return filtered
+
+
+def _drop_invalid_or_days(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop trading days whose opening range cannot be trusted.
+
+    IBKR delayed-data backfills (marketDataType=3) sometimes emit zero-range,
+    near-zero-volume bars during periods when the demo account didn't have
+    a CME subscription. Real RTH MNQ first-bar volume is in the thousands;
+    a first bar with range == 0 and volume < 5 is the synthetic-placeholder
+    signature, not a real OR. Letting these days into the backtest
+    contaminates the inverse_orb percentile and the regime_filter rolling
+    window without ever firing a tradeable signal — silent baseline drift.
+
+    The first RTH bar must also be timestamped 09:30 ET. If the 09:30 bar is
+    missing and a later bar becomes "bar 0", the backtester builds the OR from
+    the wrong window and pollutes rolling OR histories even if no trade fires
+    that day.
+    """
+    if df.empty:
+        return df
+
+    expected_start = pd.Timestamp("09:30").time()
+    by_day = df.groupby(df.index.date)
+    keep_mask = pd.Series(True, index=df.index)
+    dropped_synthetic = []
+    dropped_late_start = []
+    for date, group in by_day:
+        first = group.iloc[0]
+        first_ts = group.index[0]
+        is_synthetic = (first["high"] - first["low"] == 0) and (first["volume"] < 5)
+        starts_late = first_ts.time() != expected_start
+        if is_synthetic or starts_late:
+            keep_mask.loc[group.index] = False
+            if is_synthetic:
+                dropped_synthetic.append(date)
+            else:
+                dropped_late_start.append(date)
+
+    if dropped_synthetic:
+        logger.warning(
+            f"Dropped {len(dropped_synthetic)} trading days with synthetic 09:30 bars "
+            f"(zero range + zero/near-zero volume): "
+            f"first={dropped_synthetic[0]}, last={dropped_synthetic[-1]}"
+        )
+    if dropped_late_start:
+        logger.warning(
+            f"Dropped {len(dropped_late_start)} trading days missing the 09:30 OR bar: "
+            f"first={dropped_late_start[0]}, last={dropped_late_start[-1]}"
+        )
+    return df[keep_mask].copy()
 
 
 def _validate(df: pd.DataFrame) -> pd.DataFrame:

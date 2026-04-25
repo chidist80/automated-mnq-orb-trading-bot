@@ -107,7 +107,7 @@ class MonteCarloResults:
                 equity = np.insert(equity, 0, test_size)
                 peak = np.maximum.accumulate(equity)
                 dd = peak - equity
-                dd_pct = np.max(dd) / np.max(peak) if np.max(peak) > 0 else 0
+                dd_pct = _max_drawdown_pct(dd, peak)
                 if dd_pct >= self.ruin_threshold_pct:
                     ruin_hits += 1
             lines.append(f"  ${test_size:>8,.0f}:  {ruin_hits / self.simulations:.1%} ruin probability")
@@ -158,11 +158,13 @@ def run_monte_carlo(
         equity = account_size + np.cumsum(shuffled)
         equity = np.insert(equity, 0, account_size)  # Include starting balance
 
-        # Calculate max drawdown
+        # Calculate max drawdown. Drawdown percent must be measured against the
+        # peak that existed at the time of each drawdown, not the largest peak
+        # reached later in the simulation.
         peak = np.maximum.accumulate(equity)
         drawdowns = peak - equity
         max_dd = np.max(drawdowns)
-        max_dd_pct = max_dd / np.max(peak) if np.max(peak) > 0 else 0
+        max_dd_pct = _max_drawdown_pct(drawdowns, peak)
 
         max_drawdowns[i] = max_dd
         max_drawdown_pcts[i] = max_dd_pct
@@ -183,3 +185,12 @@ def run_monte_carlo(
         ruin_count=ruin_count,
         ruin_threshold_pct=ruin_threshold_pct,
     )
+
+
+def _max_drawdown_pct(drawdowns: np.ndarray, peak: np.ndarray) -> float:
+    """Return the worst peak-relative drawdown in an equity path."""
+    if len(drawdowns) == 0:
+        return 0.0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pct = np.divide(drawdowns, peak, out=np.zeros_like(drawdowns, dtype=float), where=peak > 0)
+    return float(np.max(pct))

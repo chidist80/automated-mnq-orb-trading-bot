@@ -5,6 +5,29 @@
 
 ---
 
+## Corrective Addendum — 2026-04-25
+
+Deep review before Phase 2 Task 1.1 invalidated the old Phase 1 pass. The prior
+365-trade / PF 2.66 / $17,429 baseline used same-bar hindsight: completed-bar
+closes decided whether an earlier intrabar fill had occurred. That is not a
+live-executable model for a bot.
+
+The corrected methodology now:
+- drops synthetic 09:30 bars and days missing the 09:30 OR bar
+- uses corrected peak-relative Monte Carlo drawdown percent
+- applies a 100-point hard per-trade risk cap for the $2,500 account
+- models entries as resting orders placed only after known signal state, with
+  conservative fill-bar handling
+
+Result: Phase 1 **fails** under executable semantics. Full-period run: 13 trades,
+PF 0.19, P&L -$529.61. Walk-forward: 1/12 profitable windows, avg OOS PF 0.53.
+Monte Carlo: 100% ruin. Raising capital to $3,750+ fixes only the old
+non-executable model's corrected Monte Carlo gate; it does not restore edge under
+the executable model. Phase 2 live execution is blocked pending strategy redesign
+or finer-grained data validation.
+
+---
+
 ## Validation Gate Answers
 
 ### 1. OR Detection — Correct? Breakout requires CLOSE not wick?
@@ -198,7 +221,7 @@ Ruin threshold is 20% account drawdown (matching `circuit_breakers.account_drawd
 - Ruin probability: **0.00%**
 - Median max DD: $688, p95: $1,054, p99: $1,273
 
-**Gate verdict:**
+**Original gate verdict (SUPERSEDED by corrective addendum):**
 
 | Gate | Threshold | Actual | Status |
 |------|-----------|--------|--------|
@@ -207,7 +230,8 @@ Ruin threshold is 20% account drawdown (matching `circuit_breakers.account_drawd
 | Avg OOS P&L | > 0 | +$2,455 | ✅ |
 | Monte Carlo ruin | <5% | 0.00% | ✅ |
 
-**✅ Phase 1 PASSED. Cleared to proceed to Phase 2 (live execution path).**
+**SUPERSEDED:** this pass used the old same-bar fill model and is no longer a
+live-readiness clearance. See the corrective addendum at the top of this file.
 
 ### Window #1 regime study (2026-04-25)
 
@@ -251,7 +275,9 @@ Audited `or_detector.py`, `indicators.py`, `data_loader.py` — the three module
 | `load_ibkr_historical()` was the obsolete pre-fix loader (no marketDataType, no ContFuture handling) | MEDIUM | Replaced with `NotImplementedError` pointing at `scripts/fetch_data.py` so no caller silently regresses. |
 | `_normalize_timestamps` silently localized naive index to US/Eastern (would shift a UTC CSV by 4-5h) | MEDIUM | Logs a WARNING when localizing a naive index; the bot will fail loudly if someone hands it UTC data. |
 
-Phase 1 re-run after fixes: identical metrics (pass_rate=100%, avg_oos_pf=3.30, ruin=0.00%). No regressions — these were all latent bugs that didn't activate on default config. Sanity-checked the EMA fix by running with `ema_period=21`: 256 trades / PF 2.99 (pre-fix would have KeyError'd on the missing `ema_21` column).
+SUPERSEDED: this Phase 1 re-run used the old same-bar fill model. The indicator/data
+fixes were valid, but the live-readiness conclusion is replaced by the corrective
+addendum at the top of this file.
 
 Not fixed (intentional):
 - `detect_retest` tolerance allows entry without the bar actually touching the OR level (STRESS_TEST_AUDIT #9, deferred). This is a strategy-semantics change requiring re-validation; defer to Phase 2 strategy hardening if backtest vs live divergence appears.

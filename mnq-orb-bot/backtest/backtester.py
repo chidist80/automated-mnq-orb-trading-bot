@@ -23,8 +23,8 @@ import logging
 
 from backtest.data_loader import load_csv, load_parquet, split_by_day
 from backtest.or_detector import (
-    OpeningRange, BreakoutEvent, RetestEvent,
-    detect_opening_range, detect_breakout, detect_retest, detect_failed_breakout,
+    OpeningRange, BreakoutEvent,
+    detect_opening_range, detect_breakout,
 )
 from backtest.indicators import add_all_indicators, check_confluences
 
@@ -349,56 +349,44 @@ class Backtester:
         
         took_inverse = False
         
-        # 3a: Inverse ORB (wide OR + failed breakout)
+        # 3a: Inverse ORB (wide OR + resting re-entry stop)
         if (opening_range.classification == "wide" 
             and self.strategy.get("inverse_orb", {}).get("enabled", True)
             and self._check_risk_limits(daily_pnl, daily_trades, daily_losses)):  # FIX #2: check BEFORE
             
-            failed = detect_failed_breakout(day_bars, opening_range, breakout)
-            if failed:
-                trade = self._simulate_inverse_orb(
-                    day_bars, opening_range, breakout, date_str
+            trade = self._simulate_inverse_orb(
+                day_bars, opening_range, breakout, date_str
+            )
+            if trade:
+                trades.append(trade)
+                daily_pnl += trade.pnl_dollars
+                daily_trades += 1
+                took_inverse = True
+                if trade.pnl_dollars <= 0:
+                    daily_losses += 1
+                else:
+                    daily_losses = 0
+
+        # 3b: ORB Breakout + Retest (skip if inverse ORB already taken)
+        if (not took_inverse
+            and opening_range.size <= max_stop
+            and self.strategy.get("orb_breakout", {}).get("enabled", True)
+            and self._check_risk_limits(daily_pnl, daily_trades, daily_losses)):
+
+            breakout_bar = day_bars.iloc[breakout.bar_index]
+            confluences = check_confluences(breakout_bar, breakout.direction, self.strategy)
+            if all(confluences.values()):
+                trade = self._simulate_orb_trade(
+                    day_bars, opening_range, breakout, confluences, date_str
                 )
                 if trade:
                     trades.append(trade)
                     daily_pnl += trade.pnl_dollars
                     daily_trades += 1
-                    took_inverse = True
                     if trade.pnl_dollars <= 0:
                         daily_losses += 1
                     else:
                         daily_losses = 0
-        
-        # 3b: ORB Breakout + Retest (skip if inverse ORB already taken)
-        if (not took_inverse
-            and opening_range.size <= max_stop 
-            and self.strategy.get("orb_breakout", {}).get("enabled", True)
-            and self._check_risk_limits(daily_pnl, daily_trades, daily_losses)):
-            
-            retest = detect_retest(
-                day_bars, opening_range, breakout,
-                tolerance_points=self.strategy["orb_breakout"].get("retest_tolerance", 5),
-                timeout_bars=self.strategy["orb_breakout"].get("retest_timeout_bars", 8),
-            )
-            
-            if retest:
-                # Check if retest is within trading window
-                if self._in_trading_window(retest.timestamp):
-                    retest_bar = day_bars.iloc[retest.bar_index]
-                    confluences = check_confluences(retest_bar, retest.direction, self.strategy)
-                    
-                    if all(confluences.values()):
-                        trade = self._simulate_orb_trade(
-                            day_bars, opening_range, retest, confluences, date_str
-                        )
-                        if trade:
-                            trades.append(trade)
-                            daily_pnl += trade.pnl_dollars
-                            daily_trades += 1
-                            if trade.pnl_dollars <= 0:
-                                daily_losses += 1
-                            else:
-                                daily_losses = 0
         
         # 3c: 9EMA Continuation (only if no active position from above — FIX #12)
         # Regime filter: skip EMA continuation on high-OR-width days (Filter A).
@@ -448,19 +436,48 @@ class Backtester:
         self,
         day_bars: pd.DataFrame,
         opening_range: OpeningRange,
-        retest: RetestEvent,
+        breakout: BreakoutEvent,
         confluences: dict,
         date_str: str,
     ) -> Optional[Trade]:
-        """Simulate an ORB breakout + retest trade through to exit."""
-        
-        entry_price = retest.entry_price
-        stop_price = retest.stop_price
-        risk_points = retest.risk_points
-        direction = retest.direction
+        """Simulate an executable ORB breakout + resting retest-limit order."""
+        orb_config = self.strategy["orb_breakout"]
+        timeout_bars = orb_config.get("retest_timeout_bars", 8)
+        direction = breakout.direction
+
+        if direction == "long":
+            entry_price = opening_range.high
+            stop_price = opening_range.low
+        else:
+            entry_price = opening_range.low
+            stop_price = opening_range.high
+
+        fill_idx = self._find_resting_level_fill(
+            day_bars,
+            start_bar=breakout.bar_index + 1,
+            end_bar=min(breakout.bar_index + 1 + timeout_bars, len(day_bars)),
+            direction=direction,
+            entry_price=entry_price,
+        )
+        if fill_idx is None:
+            return None
+
+        fill_time = day_bars.index[fill_idx]
+        if not self._in_trading_window(fill_time):
+            return None
+
+        if direction == "long":
+            risk_points = entry_price - stop_price
+        else:
+            risk_points = stop_price - entry_price
+        if risk_points <= 0:
+            return None
+
+        if not self._check_trade_risk_cap(risk_points, date_str, "orb_breakout"):
+            return None
         
         # Calculate target based on config
-        target_config = self.strategy["orb_breakout"]["target"]
+        target_config = orb_config["target"]
         target_price = None
         
         if target_config["method"] in ("fixed_rr", "partial_trail"):
@@ -475,7 +492,7 @@ class Backtester:
             date=date_str,
             setup="orb_breakout",
             direction=direction,
-            entry_time=retest.timestamp,
+            entry_time=fill_time,
             entry_price=entry_price,
             stop_price=stop_price,
             target_price=target_price,
@@ -486,7 +503,7 @@ class Backtester:
             or_classification=opening_range.classification,
         )
         
-        trade = self._walk_forward_exit(day_bars, trade, retest.bar_index + 1)
+        trade = self._walk_forward_exit(day_bars, trade, fill_idx, entry_bar_stop_only=True)
         return trade
     
     def _simulate_inverse_orb(
@@ -496,9 +513,11 @@ class Backtester:
         breakout: BreakoutEvent,
         date_str: str,
     ) -> Optional[Trade]:
-        """Simulate an inverse ORB (fade) trade."""
+        """Simulate an executable inverse ORB resting re-entry order."""
         inv_config = self.strategy.get("inverse_orb", {})
         buffer = inv_config.get("stop_buffer_points", 10)
+        window_minutes = inv_config.get("time_window_minutes", 60)
+        max_bars = max(window_minutes // 15, 1)
         
         # Entry: after failed breakout, enter in opposite direction
         if breakout.direction == "long":
@@ -514,27 +533,35 @@ class Backtester:
             stop_price = breakout.candle_low - buffer
             target_price = opening_range.midpoint
         
-        risk_points = abs(entry_price - stop_price)
-        
-        # Find the bar where price re-enters the OR
-        entry_bar_idx = None
-        for i in range(breakout.bar_index + 1, len(day_bars)):
-            bar = day_bars.iloc[i]
-            if direction == "short" and bar["close"] < opening_range.high:
-                entry_bar_idx = i
-                break
-            elif direction == "long" and bar["close"] > opening_range.low:
-                entry_bar_idx = i
-                break
-        
-        if entry_bar_idx is None:
+        fill_idx = self._find_resting_level_fill(
+            day_bars,
+            start_bar=breakout.bar_index + 1,
+            end_bar=min(breakout.bar_index + 1 + max_bars, len(day_bars)),
+            direction=direction,
+            entry_price=entry_price,
+        )
+        if fill_idx is None:
+            return None
+
+        fill_time = day_bars.index[fill_idx]
+        if not self._in_trading_window(fill_time):
+            return None
+
+        if direction == "long":
+            risk_points = entry_price - stop_price
+        else:
+            risk_points = stop_price - entry_price
+        if risk_points <= 0:
+            return None
+
+        if not self._check_trade_risk_cap(risk_points, date_str, "inverse_orb"):
             return None
         
         trade = Trade(
             date=date_str,
             setup="inverse_orb",
             direction=direction,
-            entry_time=day_bars.index[entry_bar_idx],
+            entry_time=fill_time,
             entry_price=entry_price,
             stop_price=stop_price,
             target_price=target_price,
@@ -544,7 +571,7 @@ class Backtester:
             or_classification=opening_range.classification,
         )
         
-        trade = self._walk_forward_exit(day_bars, trade, entry_bar_idx + 1)
+        trade = self._walk_forward_exit(day_bars, trade, fill_idx, entry_bar_stop_only=True)
         return trade
     
     def _find_ema_continuations(
@@ -576,6 +603,8 @@ class Backtester:
             
             bar = day_bars.iloc[i]
             bar_time = day_bars.index[i]
+            if trades and trades[-1].exit_time and bar_time <= trades[-1].exit_time:
+                continue
             
             # Check trading window
             if not self._in_trading_window(bar_time):
@@ -589,83 +618,125 @@ class Backtester:
                 distance = bar["close"] - opening_range.high
                 if distance < min_distance:
                     continue
-                
-                if bar["low"] <= ema_val and bar["close"] > ema_val:
-                    confluences = check_confluences(bar, direction, self.strategy)
-                    confluences.pop("volume", None)
+
+                confluences = check_confluences(bar, direction, self.strategy)
+                confluences.pop("volume", None)
+
+                if all(confluences.values()):
+                    stop_buffer = ema_config.get("stop_buffer_points", 5)
+                    swing = bar.get("swing_low_5", ema_val - 10)
+                    stop_price = min(swing, ema_val) - stop_buffer
+                    entry_price = ema_val + 2
+                    fill_idx = self._find_resting_level_fill(
+                        day_bars, i + 1, min(i + 2, len(day_bars)), direction, entry_price
+                    )
+                    if fill_idx is None:
+                        continue
+                    fill_time = day_bars.index[fill_idx]
+                    if not self._in_trading_window(fill_time):
+                        continue
+                    risk_points = entry_price - stop_price
+                    if risk_points <= 0:
+                        continue
+                    if not self._check_trade_risk_cap(risk_points, date_str, "ema_continuation"):
+                        continue
                     
-                    if all(confluences.values()):
-                        stop_buffer = ema_config.get("stop_buffer_points", 5)
-                        swing = bar.get("swing_low_5", ema_val - 10)
-                        stop_price = min(swing, ema_val) - stop_buffer
-                        entry_price = ema_val + 2
-                        
-                        trade = Trade(
-                            date=date_str,
-                            setup="ema_continuation",
-                            direction="long",
-                            entry_time=bar_time,
-                            entry_price=entry_price,
-                            stop_price=stop_price,
-                            risk_points=entry_price - stop_price,
-                            contracts=1,
-                            confluences=confluences,
-                            or_size=opening_range.size,
-                            or_classification=opening_range.classification,
-                        )
-                        trade = self._walk_forward_exit(day_bars, trade, i + 1)
-                        if trade:
-                            trades.append(trade)
-                            daily_pnl += trade.pnl_dollars
-                            if trade.pnl_dollars <= 0:
-                                daily_losses += 1
-                            else:
-                                daily_losses = 0
+                    trade = Trade(
+                        date=date_str,
+                        setup="ema_continuation",
+                        direction="long",
+                        entry_time=fill_time,
+                        entry_price=entry_price,
+                        stop_price=stop_price,
+                        risk_points=risk_points,
+                        contracts=1,
+                        confluences=confluences,
+                        or_size=opening_range.size,
+                        or_classification=opening_range.classification,
+                    )
+                    trade = self._walk_forward_exit(day_bars, trade, fill_idx, entry_bar_stop_only=True)
+                    if trade:
+                        trades.append(trade)
+                        daily_pnl += trade.pnl_dollars
+                        if trade.pnl_dollars <= 0:
+                            daily_losses += 1
+                        else:
+                            daily_losses = 0
             
             elif direction == "short":
                 distance = opening_range.low - bar["close"]
                 if distance < min_distance:
                     continue
-                
-                if bar["high"] >= ema_val and bar["close"] < ema_val:
-                    confluences = check_confluences(bar, direction, self.strategy)
-                    confluences.pop("volume", None)
+
+                confluences = check_confluences(bar, direction, self.strategy)
+                confluences.pop("volume", None)
+
+                if all(confluences.values()):
+                    stop_buffer = ema_config.get("stop_buffer_points", 5)
+                    swing = bar.get("swing_high_5", ema_val + 10)
+                    stop_price = max(swing, ema_val) + stop_buffer
+                    entry_price = ema_val - 2
+                    fill_idx = self._find_resting_level_fill(
+                        day_bars, i + 1, min(i + 2, len(day_bars)), direction, entry_price
+                    )
+                    if fill_idx is None:
+                        continue
+                    fill_time = day_bars.index[fill_idx]
+                    if not self._in_trading_window(fill_time):
+                        continue
+                    risk_points = stop_price - entry_price
+                    if risk_points <= 0:
+                        continue
+                    if not self._check_trade_risk_cap(risk_points, date_str, "ema_continuation"):
+                        continue
                     
-                    if all(confluences.values()):
-                        stop_buffer = ema_config.get("stop_buffer_points", 5)
-                        swing = bar.get("swing_high_5", ema_val + 10)
-                        stop_price = max(swing, ema_val) + stop_buffer
-                        entry_price = ema_val - 2
-                        
-                        trade = Trade(
-                            date=date_str,
-                            setup="ema_continuation",
-                            direction="short",
-                            entry_time=bar_time,
-                            entry_price=entry_price,
-                            stop_price=stop_price,
-                            risk_points=stop_price - entry_price,
-                            contracts=1,
-                            confluences=confluences,
-                            or_size=opening_range.size,
-                            or_classification=opening_range.classification,
-                        )
-                        trade = self._walk_forward_exit(day_bars, trade, i + 1)
-                        if trade:
-                            trades.append(trade)
-                            daily_pnl += trade.pnl_dollars
-                            if trade.pnl_dollars <= 0:
-                                daily_losses += 1
-                            else:
-                                daily_losses = 0
+                    trade = Trade(
+                        date=date_str,
+                        setup="ema_continuation",
+                        direction="short",
+                        entry_time=fill_time,
+                        entry_price=entry_price,
+                        stop_price=stop_price,
+                        risk_points=risk_points,
+                        contracts=1,
+                        confluences=confluences,
+                        or_size=opening_range.size,
+                        or_classification=opening_range.classification,
+                    )
+                    trade = self._walk_forward_exit(day_bars, trade, fill_idx, entry_bar_stop_only=True)
+                    if trade:
+                        trades.append(trade)
+                        daily_pnl += trade.pnl_dollars
+                        if trade.pnl_dollars <= 0:
+                            daily_losses += 1
+                        else:
+                            daily_losses = 0
         
         return trades
+
+    def _find_resting_level_fill(
+        self,
+        day_bars: pd.DataFrame,
+        start_bar: int,
+        end_bar: int,
+        direction: str,
+        entry_price: float,
+    ) -> Optional[int]:
+        """Find the first bar where a pre-placed entry order would fill."""
+        for i in range(start_bar, end_bar):
+            bar = day_bars.iloc[i]
+            if direction == "long" and bar["low"] <= entry_price:
+                return i
+            if direction == "short" and bar["high"] >= entry_price:
+                return i
+        return None
     
     def _walk_forward_exit(
         self,
         day_bars: pd.DataFrame,
         trade: Trade,
         start_bar: int,
+        entry_bar_stop_only: bool = False,
     ) -> Trade:
         """Walk forward bar-by-bar to determine trade exit.
         
@@ -695,6 +766,13 @@ class Backtester:
             if trade.direction == "long":
                 stop_hit = bar["low"] <= current_stop
                 target_hit = trade.target_price and bar["high"] >= trade.target_price
+                if entry_bar_stop_only and i == start_bar:
+                    if stop_hit:
+                        trade.exit_price = current_stop
+                        trade.exit_time = bar_time
+                        trade.exit_reason = "stop"
+                        break
+                    continue
                 
                 # FIX #3: If both stop and target hit on same bar, check which is closer to open
                 if stop_hit and target_hit:
@@ -737,6 +815,13 @@ class Backtester:
             elif trade.direction == "short":
                 stop_hit = bar["high"] >= current_stop
                 target_hit = trade.target_price and bar["low"] <= trade.target_price
+                if entry_bar_stop_only and i == start_bar:
+                    if stop_hit:
+                        trade.exit_price = current_stop
+                        trade.exit_time = bar_time
+                        trade.exit_reason = "stop"
+                        break
+                    continue
                 
                 # FIX #3: Same-bar resolution for shorts
                 if stop_hit and target_hit:
@@ -820,6 +905,19 @@ class Backtester:
         if consecutive_losses >= limits["consecutive_loss_halt"]:
             return False
         
+        return True
+
+    def _check_trade_risk_cap(self, risk_points: float, date_str: str, setup: str) -> bool:
+        """Check per-trade point-risk cap before accepting a signal."""
+        max_risk = self.risk.get("position_sizing", {}).get("max_risk_points")
+        if max_risk is None:
+            return True
+        if risk_points > max_risk:
+            logger.debug(
+                f"{date_str}: {setup} risk {risk_points:.1f} pts exceeds "
+                f"max_risk_points={max_risk}, skipping"
+            )
+            return False
         return True
     
     def _in_trading_window(self, timestamp: pd.Timestamp) -> bool:

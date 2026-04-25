@@ -7,6 +7,7 @@ account:
 
 position_sizing:
   max_contracts: 1              # Start with 1 MNQ — scale after 50+ validated trades
+  max_risk_points: 100          # Hard per-trade cap: 100 MNQ pts ≈ $200 before slippage/fees
   scale_up_rules:
     min_trades: 50              # Minimum trades before considering scale-up
     min_win_rate: 0.65          # Must maintain 65%+ win rate
@@ -49,6 +50,12 @@ trade_management:
   breakeven_buffer: 5           # Points above entry for BE stop (cover commissions)
 
 # Execution modeling (for backtest realism)
+# Calibrated 2026-04-25 against IBKR's published all-in MNQ rates and Phase 2
+# mock-fidelity charter. Slippage is total-trip (entry+exit combined); 1.5pt is
+# 6 ticks ≈ realistic worst-case at 09:30 ET retest entries against a thin book.
+# Commission is per-side and includes IB fee + CME exchange fee + reg fee
+# (≈ $0.25 + $0.20 + $0.02). Tightening these vs the prior 1.0pt / $0.25
+# values makes the backtest more pessimistic than live so we don't over-promise.
 execution:
-  slippage_points: 1.0          # Points of adverse slippage per trade (conservative)
-  commission_per_side: 0.25     # IBKR MNQ commission per contract per side
+  slippage_points: 1.5          # Points of adverse slippage per round trip (entry + exit combined)
+  commission_per_side: 0.47     # IBKR all-in MNQ: ~$0.25 commission + ~$0.20 exchange + ~$0.02 regulatory

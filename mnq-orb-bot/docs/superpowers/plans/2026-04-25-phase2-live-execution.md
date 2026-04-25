@@ -102,69 +102,37 @@ pyproject.toml                       # add pytest-mock to dev deps
 **Files:**
 - Create: `tests/unit/test_strategies_core.py`
 
-- [ ] **Step 1: Run Phase 1 and snapshot the headline numbers**
+- [x] **Step 1: Run Phase 1 and snapshot the headline numbers**
 
 Run: `python scripts/run_phase1.py 2>&1 | grep -v "circuit breaker active" | grep -v "Seeded regime" | tee /tmp/phase1_baseline.txt`
 
-Expected: `Walk-forward: PASS (pass_rate=100%, avg_oos_pf=3.30, avg_oos_pnl=$2,455)` and `Monte Carlo: PASS (ruin_prob=0.00%)`. Total trades 365, full PF 2.66, full P&L $17,429.
+Corrective result after deep review (2026-04-25): the old same-bar fill baseline is **not valid for live execution**. A completed bar's close cannot be used to decide that an earlier intrabar fill occurred. Raising capital to `$3,750+` only fixes the corrected Monte Carlo gate under the old non-executable fill model; it does not restore edge under an executable model.
 
-- [ ] **Step 2: Write the regression test**
+Canonical executable baseline now uses:
+- data quality: drop synthetic 09:30 bars and days missing the 09:30 OR bar
+- costs: 1.5 MNQ points round-trip slippage, `$0.47` per side commission
+- risk: `max_risk_points: 100`
+- fills: resting orders placed only after known/completed signal state; fill bar only allows conservative same-bar stop, not same-bar target
+
+Verified 2026-04-25 with executable resting-order semantics: **Phase 1 FAILS**. Full run: 13 trades, PF 0.19, P&L `-$529.61`; walk-forward 1/12 profitable windows, avg OOS PF 0.53, avg OOS P&L `-$452`; Monte Carlo ruin 100%. Larger capital does not fix negative expectancy (`$100k` account still PF 0.51 / P&L `-$11,296` on the same executable model).
+
+🛑 **Corrective pause:** Phase 2 live execution is blocked. Continue Epic 1 only if the goal is preserving the current executable baseline while strategy semantics are redesigned. Do not use the old 365-trade / PF 2.66 / `$17,429` baseline for live-readiness claims.
+
+- [x] **Step 2: Write the regression test**
 
 ```python
 # tests/unit/test_strategies_core.py
-"""Regression test: backtester output must match Phase 1 baseline before & after refactor.
-
-Run with: pytest tests/unit/test_strategies_core.py -v
-"""
-
-import sys
-from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from backtest.backtester import Backtester
-
-
-PHASE1_DATA = PROJECT_ROOT / "data" / "mnq_15m.parquet"
-PHASE1_STRAT = PROJECT_ROOT / "config" / "strategy_params.yaml"
-PHASE1_RISK = PROJECT_ROOT / "config" / "risk_params.yaml"
-
-
-def test_phase1_baseline_total_trades():
-    bt = Backtester(str(PHASE1_STRAT), str(PHASE1_RISK))
-    res = bt.run(PHASE1_DATA)
-    assert res.total_trades == 365, f"Expected 365 trades, got {res.total_trades}"
-
-
-def test_phase1_baseline_pnl():
-    bt = Backtester(str(PHASE1_STRAT), str(PHASE1_RISK))
-    res = bt.run(PHASE1_DATA)
-    assert abs(res.total_pnl - 17429.08) < 1.0, f"P&L drift: got {res.total_pnl:.2f}"
-
-
-def test_phase1_baseline_profit_factor():
-    bt = Backtester(str(PHASE1_STRAT), str(PHASE1_RISK))
-    res = bt.run(PHASE1_DATA)
-    assert abs(res.profit_factor - 2.66) < 0.05
-
-
-def test_phase1_baseline_setup_breakdown():
-    bt = Backtester(str(PHASE1_STRAT), str(PHASE1_RISK))
-    res = bt.run(PHASE1_DATA)
-    by_setup = {}
-    for t in res.trades:
-        by_setup[t.setup] = by_setup.get(t.setup, 0) + 1
-    # 240 EMA continuation, 66 ORB breakout, 59 inverse ORB
-    assert by_setup["ema_continuation"] == 240
-    assert by_setup["orb_breakout"] == 66
-    assert by_setup["inverse_orb"] == 59
+See `tests/unit/test_strategies_core.py`. It locks the executable failing baseline
+so strategy-core extraction cannot accidentally drift while the strategy is
+redesigned.
 ```
 
-- [ ] **Step 3: Run the regression test against current code**
+- [x] **Step 3: Run the regression test against current code**
 
 Run: `pytest tests/unit/test_strategies_core.py -v`
-Expected: all 4 tests PASS (this is the pre-refactor baseline).
+Expected: all 4 tests PASS (this is the executable pre-refactor baseline; it is not a live-readiness pass).
+
+Verified 2026-04-25 after corrective pause: 7/7 targeted methodology/baseline tests pass; full suite 76/76 passes with pytest capture disabled for the local Anaconda capture segfault.
 
 - [ ] **Step 4: Commit**
 
@@ -172,6 +140,8 @@ Expected: all 4 tests PASS (this is the pre-refactor baseline).
 git add tests/unit/test_strategies_core.py
 git commit -m "test: capture Phase 1 baseline as regression suite for strategy core extraction"
 ```
+
+Old commit `c0f6333` captured the pre-corrective baseline and is superseded. New corrective baseline must be committed after final verification.
 
 ## Task 1.2: Create strategies package skeleton with type contracts
 
@@ -905,7 +875,7 @@ Expected: all 8 tests PASS (4 baseline + 4 new behavioural). The baseline tests 
 - [ ] **Step 3: Run the full Phase 1 pipeline**
 
 Run: `python scripts/run_phase1.py 2>&1 | grep -v "circuit breaker active" | grep -v "Seeded regime" | tail -10`
-Expected (must match Phase 1 baseline exactly): `Walk-forward: PASS (pass_rate=100%, avg_oos_pf=3.30, avg_oos_pnl=$2,455)` and `Monte Carlo: PASS (ruin_prob=0.00%)`.
+Expected (must match executable baseline exactly): `Walk-forward: FAIL (pass_rate=8%, avg_oos_pf=0.53, avg_oos_pnl=$-452)` and `Monte Carlo: FAIL (ruin_prob=100.00%)`. A green Phase 1 result here means strategy semantics changed and must be reviewed, not celebrated.
 
 - [ ] **Step 4: Compare numbers vs `/tmp/phase1_baseline.txt`**
 
@@ -3368,8 +3338,8 @@ def _load(p):
 def test_one_day_replay_matches_backtester(mock_ib):
     """Pick a day with a clean ORB-breakout signal and replay it."""
     df = load_parquet(DATA)
-    # Find a day where the backtester emitted >=1 trade — Phase 1 had 365 trades / 502 days,
-    # so ~70% of days had 0 trades. Sample a known active day from the run summary.
+    # Find a day where the executable backtester emits >=1 trade. The corrective
+    # baseline is sparse, so sample a known active day from the current run summary.
     target_date = pd.Timestamp("2025-08-04", tz="US/Eastern").date()
     day_bars = df[df.index.date == target_date]
     if len(day_bars) < 5:
