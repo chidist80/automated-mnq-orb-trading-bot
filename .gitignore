@@ -11,4 +11,7 @@ Thumbs.db
 .graphify_*.json
 graphify-out/
 
+# Worktrees (isolated workspaces, not for git)
+.worktrees/
+
 # Project-internal ignores live in mnq-orb-bot/.gitignore
