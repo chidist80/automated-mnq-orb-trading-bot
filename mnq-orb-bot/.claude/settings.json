@@ -1,83 +1,35 @@
 {
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  },
-  "mcpServers": {
-    "claude-flow": {
-      "command": "npx",
-      "args": ["-y", "ruflo@latest", "mcp", "start"]
-    }
-  },
   "hooks": {
-    "postEdit": [
+    "SessionStart": [
       {
-        "pattern": "bot/execution/**",
-        "command": "npx ruflo@latest hooks post-edit --file \"$FILE\" --train-patterns && npx ruflo@latest hooks worker dispatch --trigger audit && npx ruflo@latest hooks worker dispatch --trigger testgaps"
-      },
-      {
-        "pattern": "bot/health_monitor.py",
-        "command": "npx ruflo@latest hooks post-edit --file \"$FILE\" --train-patterns && npx ruflo@latest hooks worker dispatch --trigger audit"
-      },
-      {
-        "pattern": "bot/**",
-        "command": "npx ruflo@latest hooks post-edit --file \"$FILE\" --train-patterns"
-      },
-      {
-        "pattern": "backtest/**",
-        "command": "npx ruflo@latest hooks post-edit --file \"$FILE\" --train-patterns"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/hooks/session_start.sh"
+          }
+        ]
       }
     ],
-    "preTask": [
+    "PostToolUse": [
       {
-        "command": "npx ruflo@latest hooks pre-task --description \"$TASK\" && npx ruflo@latest memory search --namespace mnq-bot --query \"$TASK\" 2>/dev/null || true"
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/post_tier3_edit.py"
+          }
+        ]
       }
     ],
-    "postTask": [
+    "Stop": [
       {
-        "command": "npx ruflo@latest hooks post-task --task-id \"$TASK_ID\" --success $SUCCESS --train-neural true"
-      }
-    ],
-    "teammateIdle": [
-      {
-        "command": "npx ruflo@latest hooks teammate-idle --auto-assign true"
-      }
-    ],
-    "taskCompleted": [
-      {
-        "command": "npx ruflo@latest hooks task-completed --task-id \"$TASK_ID\" --train-patterns true"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/stop_completion_check.py"
+          }
+        ]
       }
     ]
-  },
-  "claudeFlow": {
-    "agentTeams": {
-      "enabled": true,
-      "teammateMode": "auto",
-      "taskListEnabled": true,
-      "mailboxEnabled": true
-    },
-    "memory": {
-      "namespace": "mnq-bot",
-      "backend": "hybrid"
-    },
-    "neural": {
-      "enabled": true,
-      "modelType": "moe",
-      "trainOnSuccess": true,
-      "trainOnFailure": true
-    },
-    "embeddings": {
-      "enabled": true,
-      "model": "all-mpnet-base-v2",
-      "reasoningBank": true
-    },
-    "modelRouting": {
-      "tier1_agentBooster": true,
-      "tier2_model": "haiku",
-      "tier3_model": "sonnet"
-    },
-    "workers": {
-      "audit": { "autoDispatch": ["bot/execution/**", "bot/health_monitor.py"] },
-      "testgaps": { "autoDispatch": ["bot/execution/**", "bot/signal_generator.py"] }
-    }
   }
 }
