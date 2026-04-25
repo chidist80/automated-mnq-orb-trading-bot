@@ -1,0 +1,119 @@
+{
+  "baseline_csv": "research/human_edge_replay/paper_forward/canonical_strict_2024plus.csv",
+  "rule_version": "phase6_causal_or_retest_v1",
+  "data_file_hash": "b231c63a1cb124b9eef702848fd44a437d0812544f6124c8cb02c9dfa27f5e11",
+  "data_last_timestamp": "2026-04-24T15:59:00-04:00",
+  "simulations": 20000,
+  "seed": 42,
+  "ruin_threshold_pct": 0.2,
+  "results": {
+    "tier1": {
+      "trades": 89,
+      "total_pnl": 2035.74,
+      "avg_pnl": 22.8735,
+      "win_rate": 0.6067,
+      "pf": 1.6737,
+      "per_account": [
+        {
+          "account_size": 3750.0,
+          "simulations": 20000,
+          "trades": 89,
+          "ruin_threshold_pct": 0.2,
+          "ruin_count": 626,
+          "ruin_probability": 0.0313,
+          "median_max_drawdown": 431.6999999999998,
+          "p95_max_drawdown": 826.8000000000011,
+          "p99_max_drawdown": 1071.1799999999994,
+          "median_max_drawdown_pct": 0.09209600000000004,
+          "p95_max_drawdown_pct": 0.18259188061072548,
+          "p99_max_drawdown_pct": 0.2459702140319693,
+          "median_final_equity": 5785.740000000002
+        },
+        {
+          "account_size": 5000.0,
+          "simulations": 20000,
+          "trades": 89,
+          "ruin_threshold_pct": 0.2,
+          "ruin_count": 136,
+          "ruin_probability": 0.0068,
+          "median_max_drawdown": 431.6999999999998,
+          "p95_max_drawdown": 826.8000000000011,
+          "p99_max_drawdown": 1071.1799999999994,
+          "median_max_drawdown_pct": 0.07318321684361132,
+          "p95_max_drawdown_pct": 0.14183608890156812,
+          "p99_max_drawdown_pct": 0.18848521186876654,
+          "median_final_equity": 7035.740000000002
+        },
+        {
+          "account_size": 7500.0,
+          "simulations": 20000,
+          "trades": 89,
+          "ruin_threshold_pct": 0.2,
+          "ruin_count": 7,
+          "ruin_probability": 0.00035,
+          "median_max_drawdown": 431.6999999999998,
+          "p95_max_drawdown": 826.8000000000011,
+          "p99_max_drawdown": 1071.1799999999994,
+          "median_max_drawdown_pct": 0.05192009958874158,
+          "p95_max_drawdown_pct": 0.09839711142015725,
+          "p99_max_drawdown_pct": 0.1296926032435843,
+          "median_final_equity": 9535.740000000002
+        }
+      ]
+    },
+    "a_plus_shadow": {
+      "trades": 51,
+      "total_pnl": 2076.66,
+      "avg_pnl": 40.7188,
+      "win_rate": 0.7059,
+      "pf": 2.6035,
+      "per_account": [
+        {
+          "account_size": 3750.0,
+          "simulations": 20000,
+          "trades": 51,
+          "ruin_threshold_pct": 0.2,
+          "ruin_count": 12,
+          "ruin_probability": 0.0006,
+          "median_max_drawdown": 259.02,
+          "p95_max_drawdown": 496.0799999999999,
+          "p99_max_drawdown": 604.3800000000001,
+          "median_max_drawdown_pct": 0.054370105887576,
+          "p95_max_drawdown_pct": 0.10710406610514982,
+          "p99_max_drawdown_pct": 0.1418984562734612,
+          "median_final_equity": 5826.660000000002
+        },
+        {
+          "account_size": 5000.0,
+          "simulations": 20000,
+          "trades": 51,
+          "ruin_threshold_pct": 0.2,
+          "ruin_count": 1,
+          "ruin_probability": 5e-05,
+          "median_max_drawdown": 259.0199999999995,
+          "p95_max_drawdown": 496.0799999999999,
+          "p99_max_drawdown": 604.3800000000001,
+          "median_max_drawdown_pct": 0.04320485191387727,
+          "p95_max_drawdown_pct": 0.0830779782272107,
+          "p99_max_drawdown_pct": 0.11013709293639126,
+          "median_final_equity": 7076.660000000002
+        },
+        {
+          "account_size": 7500.0,
+          "simulations": 20000,
+          "trades": 51,
+          "ruin_threshold_pct": 0.2,
+          "ruin_count": 0,
+          "ruin_probability": 0.0,
+          "median_max_drawdown": 259.02000000000044,
+          "p95_max_drawdown": 496.0799999999999,
+          "p99_max_drawdown": 604.380000000001,
+          "median_max_drawdown_pct": 0.03041168845807039,
+          "p95_max_drawdown_pct": 0.056850056494496704,
+          "p99_max_drawdown_pct": 0.07573604730073276,
+          "median_final_equity": 9576.660000000002
+        }
+      ]
+    }
+  }
+}
