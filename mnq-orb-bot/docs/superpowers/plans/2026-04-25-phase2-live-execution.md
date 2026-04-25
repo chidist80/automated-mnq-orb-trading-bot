@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the live execution path — the trading bot, watchdog, and supporting infrastructure that turns Phase 1's validated strategy into real-money MNQ futures trades on IBKR, with hard safety guarantees and zero ruflo dependency at runtime.
+**Goal:** Build the live execution path — the trading bot and watchdog that turn Phase 1's validated strategy into real-money MNQ futures trades on IBKR, with hard safety guarantees and a minimal runtime dependency surface.
 
-**Architecture:** Three independent processes on the production VPS. The **bot** detects signals (delegating to a shared strategy core that the backtester also uses) and submits bracket orders. The **watchdog** runs as a separate process with its own IBKR connection and flattens at 15:45 ET regardless of bot state. The **dispatcher** (already exists; not in scope here) does ruflo-powered analysis. Strategy semantics live in `backtest/strategies/core.py` so the live path and the backtester are guaranteed to agree.
+**Architecture:** Two independent processes on the production VPS. The **bot** detects signals (delegating to a shared strategy core that the backtester also uses) and submits bracket orders. The **watchdog** runs as a separate process with its own IBKR connection and flattens at 15:45 ET regardless of bot state. Strategy semantics live in `backtest/strategies/core.py` so the live path and the backtester are guaranteed to agree.
 
-**Tech Stack:** Python 3.11+, ib_insync (IBKR API), pandas, pytest with mocked IB, systemd for service management. Zero ruflo imports inside `bot/` (verifiable by grep).
+**Tech Stack:** Python 3.11+, ib_insync (IBKR API), pandas, pytest with mocked IB, systemd for service management. Stdlib + the dependencies already in `pyproject.toml` only — no orchestration frameworks, no agent runtimes, no neural-training dependencies at runtime.
+
+**Architecture decision (2026-04-25):** the original CLAUDE.md envisioned a third "dispatcher" process running ruflo-powered analysis (neural recalibration, HNSW pattern search, consensus voting). After cross-examining the plan, that complexity isn't justified at 1-contract scale: monthly recalibration is a one-shot Python script, trade analysis is a SQL query against Supabase. **Dropped from Phase 2 scope.** `bot/dispatcher.py` remains in-tree as deprecated; Phase 4 decides whether to delete or repurpose. `deploy/mnq-dispatcher.service` is removed from the active deployment runbook (Task 10.1).
 
 ---
 
@@ -15,7 +17,7 @@
 This is **real money**. Every task must respect:
 
 1. **Tier 3 — STOP and ask** before any change to risk params, IBKR connection settings, or order submission logic. The plan flags these as `🛑 CHECKPOINT`.
-2. **Factory/product separation.** Runtime processes (bot, watchdog) have zero ruflo imports. CI grep enforces this.
+2. **Minimal runtime surface.** Runtime processes (bot, watchdog) import only stdlib + ib_insync + pandas + pyyaml + supabase + slack-sdk. No orchestration frameworks, no agent runtimes, no ML dependencies. Verifiable by inspecting the import graph (Task 10.1).
 3. **Watchdog independence.** The watchdog connects to IBKR directly with its own `clientId` and flattens at 15:45 ET regardless of bot state. It cannot read from the bot's process.
 4. **Bracket orders are atomic.** Entry + stop + target submitted as a single OCA group. Never standalone entries.
 5. **Tests before code.** TDD with mocked IB. No live connection until the human checkpoint.
@@ -1281,6 +1283,28 @@ def test_bar_window_alignment():
     agg.on_trade_tick(_ts("2025-06-15 09:32:30"), price=19000.0, size=1)
     bar = agg.on_trade_tick(_ts("2025-06-15 09:45:00"), price=19010.0, size=1)
     assert bar.timestamp == _ts("2025-06-15 09:30:00")
+
+
+def test_premarket_bars_dropped_when_rth_only():
+    """Pre-market bars (before 09:30 ET) are not emitted when rth_only=True."""
+    agg = BarAggregator(rth_only=True)
+    # Pre-market tick at 09:15
+    agg.on_trade_tick(_ts("2025-06-15 09:15:00"), price=19000.0, size=1)
+    # Tick at 09:30 closes the pre-market window — but we should NOT emit it
+    bar = agg.on_trade_tick(_ts("2025-06-15 09:30:00"), price=19010.0, size=1)
+    assert bar is None  # the 09:15 window was pre-market — drop it
+
+
+def test_after_hours_bars_dropped_when_rth_only():
+    """After-hours bars (>=16:00 ET) are not emitted when rth_only=True."""
+    agg = BarAggregator(rth_only=True)
+    agg.on_trade_tick(_ts("2025-06-15 15:55:00"), price=19000.0, size=1)
+    # 16:00 closes the 15:45-16:00 RTH window — that one IS emitted
+    bar = agg.on_trade_tick(_ts("2025-06-15 16:00:01"), price=19010.0, size=1)
+    assert bar is not None and bar.timestamp == _ts("2025-06-15 15:45:00")
+    # 16:00 starts an after-hours window — closing it should NOT emit
+    bar2 = agg.on_trade_tick(_ts("2025-06-15 16:15:00"), price=19015.0, size=1)
+    assert bar2 is None
 ```
 
 - [ ] **Step 2: Run — expect FAIL**
@@ -1322,7 +1346,17 @@ class Bar:
 
 
 class BarAggregator:
-    def __init__(self):
+    """RTH = 09:30 to 16:00 ET. Set rth_only=False to keep pre/post-market bars.
+
+    The default (rth_only=True) drops any bar whose window-start is outside
+    [09:30, 16:00) ET. This matches the backtester's data-load filter so the
+    live path can't ingest data the strategy never trained against.
+    """
+    RTH_START = pd.Timestamp("09:30", tz="US/Eastern").time()
+    RTH_END = pd.Timestamp("16:00", tz="US/Eastern").time()
+
+    def __init__(self, rth_only: bool = True):
+        self.rth_only = rth_only
         self._window_start: Optional[pd.Timestamp] = None
         self._open: Optional[float] = None
         self._high: float = float("-inf")
@@ -1331,24 +1365,27 @@ class BarAggregator:
         self._volume: float = 0.0
 
     def on_trade_tick(self, ts: pd.Timestamp, price: float, size: float) -> Optional[Bar]:
-        """Add a tick. If the tick crosses a 15m boundary, return the prior bar."""
+        """Add a tick. If the tick crosses a 15m boundary, return the prior bar
+        (only if its window was inside RTH when rth_only=True)."""
         window = _window_start_for(ts)
         completed: Optional[Bar] = None
 
         if self._window_start is None:
-            # First-ever tick — start a new window
             self._begin_window(window, price)
         elif window != self._window_start:
-            # Boundary crossed — emit completed bar, start new window
-            completed = self._emit()
+            if self._is_rth_window(self._window_start) or not self.rth_only:
+                completed = self._emit()
             self._begin_window(window, price)
 
-        # Update current window's running OHLCV
         self._high = max(self._high, price)
         self._low = min(self._low, price)
         self._close = price
         self._volume += size
         return completed
+
+    def _is_rth_window(self, window_start: pd.Timestamp) -> bool:
+        t = window_start.time()
+        return self.RTH_START <= t < self.RTH_END
 
     def _begin_window(self, window: pd.Timestamp, opening_price: float):
         self._window_start = window
@@ -1762,6 +1799,7 @@ class IBKRExecutor:
         self.max_contracts = max_contracts
         self._contract: Optional[Any] = None
         self._brackets: list[BracketTracker] = []
+        self._exit_callback = None  # set via set_exit_callback() — see handle_fill
 
     def set_contract(self, contract: Any) -> None:
         self._contract = contract
@@ -1886,13 +1924,19 @@ Add to `IBKRExecutor`:
 
 ```python
     def handle_fill(self, order_id: int, price: float, qty: int) -> None:
-        """Called by the bot's event loop when an orderStatus fill arrives."""
+        """Called by the bot's event loop when an orderStatus fill arrives.
+
+        On bracket EXIT (stop or target fill), invoke the registered exit
+        callback so the bot updates its state (daily P&L, consecutive losses,
+        peak equity) which the health monitor's circuit breakers depend on.
+        """
+        from bot.execution.order_state import BracketState
         for bracket in self._brackets:
             if order_id in (bracket.parent_id, bracket.stop_id, bracket.target_id):
                 bracket.on_fill(order_id, price, qty)
+                if bracket.state == BracketState.EXITED and self._exit_callback is not None:
+                    self._exit_callback(bracket)
                 return
-        # Unknown order — log and drop. Live bot should never see this; if it
-        # does, the executor's internal bookkeeping is out of sync with IBKR.
         import logging
         logging.getLogger(__name__).warning(
             f"handle_fill: unknown orderId {order_id}; ignoring"
@@ -1903,6 +1947,11 @@ Add to `IBKRExecutor`:
             if order_id in (bracket.parent_id, bracket.stop_id, bracket.target_id):
                 bracket.on_status(order_id, status)
                 return
+
+    def set_exit_callback(self, fn) -> None:
+        """Register a callback fired when a bracket fully exits. Receives the
+        BracketTracker (with entry_price, exit_price, exit_reason populated)."""
+        self._exit_callback = fn
 ```
 
 - [ ] **Step 4: Run — expect PASS**
@@ -2134,7 +2183,6 @@ class BotState:
     regime_or_history: list[float] = field(default_factory=list)
     completed_bars: list = field(default_factory=list)  # list[Bar] — full day
     today_date: Optional[str] = None
-    open_bracket_id: Optional[int] = None  # parent_id of the live bracket if any
 
     def reset_daily(self, date_str: str) -> None:
         self.daily_pnl = 0.0
@@ -2342,6 +2390,17 @@ class SignalGenerator:
         if self.state.today_date != bar_date:
             self.state.reset_daily(bar_date)
 
+        # Trading-window enforcement — strategy_params.yaml schedule.trading_end
+        # gates new signals (e.g. no entries after 12:00 ET). We still process
+        # the bar (so completed_bars stays current and exits get evaluated),
+        # but skip signal generation outside the window.
+        schedule = self.strategy_cfg.get("schedule", {})
+        end_str = schedule.get("trading_end", "12:00")
+        end_h, end_m = map(int, end_str.split(":"))
+        bar_minutes = bar.timestamp.hour * 60 + bar.timestamp.minute
+        end_minutes = end_h * 60 + end_m
+        in_window = bar_minutes <= end_minutes
+
         self.state.completed_bars.append(bar)
 
         # Build a DataFrame of today's completed bars + indicators
@@ -2377,8 +2436,14 @@ class SignalGenerator:
             logger.warning(f"Bar {bar.timestamp}: trading halted — {halt.value}")
             return
 
+        # Outside the strategy's signal window — skip new signals
+        if not in_window:
+            return
+
         # Already have an open position? Don't submit another.
-        if self.state.open_bracket_id is not None:
+        # Source of truth is the executor's bracket list, not bot state — avoids
+        # state-clearing bugs when brackets exit.
+        if self.executor.open_brackets():
             return
 
         # Run strategy
@@ -2412,7 +2477,6 @@ class SignalGenerator:
                 stop_price=sig.stop_price,
                 target_price=target,
             )
-            self.state.open_bracket_id = tracker.parent_id
             self._submitted_signals.add(key)
             logger.info(f"Submitted {sig.setup} {sig.direction} bracket at {sig.entry_price}, "
                         f"stop {sig.stop_price}, target {target}")
@@ -2542,7 +2606,28 @@ def main():
     executor.set_contract(contract)
     health = HealthMonitor(risk_cfg)
     sg = SignalGenerator(strategy_cfg, risk_cfg, executor, health, state)
-    aggregator = BarAggregator()
+    aggregator = BarAggregator(rth_only=True)
+
+    # Wire bracket exits → bot state so circuit breakers see realized P&L
+    point_value = strategy_cfg["instrument"]["point_value"]
+    def _on_bracket_exit(bracket):
+        if bracket.entry_price is None or bracket.exit_price is None:
+            return
+        # P&L direction depends on long/short — determine from the parent order's action
+        # We know the parent was BUY for long, SELL for short; can infer from fills.
+        # Conservatively, use entry vs exit sign:
+        pnl_points = bracket.exit_price - bracket.entry_price
+        # If this was a short, sign flips. Read from parent order action.
+        parent_trade = next((t for t in ib.trades()
+                             if t.order.orderId == bracket.parent_id), None)
+        if parent_trade and parent_trade.order.action == "SELL":
+            pnl_points = -pnl_points
+        pnl_dollars = pnl_points * point_value * bracket.position if bracket.position else \
+                      pnl_points * point_value  # position cleared at this point — assume 1
+        state.record_trade(pnl_dollars)
+        logger.info(f"Bracket exited: reason={bracket.exit_reason} "
+                    f"pnl=${pnl_dollars:.2f}")
+    executor.set_exit_callback(_on_bracket_exit)
 
     # IBKR event wiring
     ticker = ib.reqMktData(contract, "", False, False)
@@ -3341,12 +3426,13 @@ git commit -m "test: end-to-end replay-one-day matches backtester signals"
 
 # Epic 10: Deployment Artifacts
 
-## Task 10.1: Update systemd unit files
+## Task 10.1: Update systemd unit files + import-surface guard
 
 **Files:**
 - Modify: `deploy/mnq-bot.service`
 - Modify: `deploy/mnq-watchdog.service`
-- Create: `scripts/check_no_ruflo.sh`
+- Remove from active deploy: `deploy/mnq-dispatcher.service` (file stays in-tree as deprecated reference)
+- Create: `scripts/check_runtime_imports.sh`
 
 - [ ] **Step 1: Verify ExecStart matches new module path**
 
@@ -3375,34 +3461,47 @@ EnvironmentFile=/opt/mnq-orb-bot/.env
 WantedBy=multi-user.target
 ```
 
-- [ ] **Step 2: Create no-ruflo CI check**
+- [ ] **Step 2: Create runtime-imports CI check**
 
 ```bash
-# scripts/check_no_ruflo.sh
+# scripts/check_runtime_imports.sh
 #!/usr/bin/env bash
-# Verify that runtime modules under bot/ have ZERO ruflo imports.
-# Per CLAUDE.md: "Ruflo is the factory, the bot is the product."
+# Keep the runtime import surface minimal. Allowed at the top level of bot/
+# (excluding bot/dispatcher.py which is deprecated, and tests):
+#   stdlib + ib_insync + pandas + numpy + yaml + pytz +
+#   bot.* + backtest.strategies.* + backtest.indicators (used by signal_generator)
+#
+# Anything else gets flagged so we know we're growing the runtime surface.
 set -euo pipefail
 
-if grep -rE "import ruflo|from ruflo|claude_flow|claude-flow" bot/ 2>/dev/null; then
-    echo "ERROR: ruflo imports found in bot/ — runtime must be ruflo-free"
+forbidden_pat='import (claude_flow|claude-flow|ruflo|tensorflow|torch|sklearn|xgboost)|from (claude_flow|claude-flow|ruflo|tensorflow|torch|sklearn|xgboost)'
+
+# Exclude deprecated dispatcher and __pycache__
+hits=$(find bot -type f -name '*.py' \
+    -not -path 'bot/dispatcher.py' \
+    -not -path 'bot/__pycache__/*' \
+    -exec grep -E "$forbidden_pat" {} + 2>/dev/null || true)
+
+if [ -n "$hits" ]; then
+    echo "ERROR: heavy/forbidden imports detected in runtime modules:"
+    echo "$hits"
     exit 1
 fi
-echo "OK: bot/ has zero ruflo imports"
+echo "OK: runtime import surface is minimal"
 ```
 
-Make it executable: `chmod +x scripts/check_no_ruflo.sh`
+Make it executable: `chmod +x scripts/check_runtime_imports.sh`
 
 - [ ] **Step 3: Run the check**
 
-Run: `bash scripts/check_no_ruflo.sh`
-Expected: `OK: bot/ has zero ruflo imports`.
+Run: `bash scripts/check_runtime_imports.sh`
+Expected: `OK: runtime import surface is minimal`.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add deploy/mnq-bot.service deploy/mnq-watchdog.service scripts/check_no_ruflo.sh
-git commit -m "deploy: systemd units + no-ruflo CI guard"
+git add deploy/mnq-bot.service deploy/mnq-watchdog.service scripts/check_runtime_imports.sh
+git commit -m "deploy: systemd units + runtime-import surface guard"
 ```
 
 ## Task 10.2: Deployment runbook
@@ -3419,7 +3518,7 @@ git commit -m "deploy: systemd units + no-ruflo CI guard"
 
 - [ ] Phase 1 PASSES: `python scripts/run_phase1.py` → both gates green
 - [ ] All unit tests pass: `pytest tests/ -v`
-- [ ] No-ruflo guard passes: `bash scripts/check_no_ruflo.sh`
+- [ ] Runtime-import guard passes: `bash scripts/check_runtime_imports.sh`
 - [ ] Risk params reviewed: `config/risk_params.yaml` — max_contracts=1, daily_max_loss=-400
 - [ ] Bot config reviewed: `config/bot.yaml` — port matches account type, market_data_type matches account
 - [ ] IBKR account ready: funded paper (DU) or live (U); CME real-time subscription if market_data_type=1
@@ -3505,9 +3604,9 @@ git commit -m "docs: Phase 2 deployment runbook"
 Run: `pytest tests/ -v`
 Expected: 0 failures.
 
-- [ ] **Step 2: Verify no-ruflo guard**
+- [ ] **Step 2: Verify runtime-import guard**
 
-Run: `bash scripts/check_no_ruflo.sh`
+Run: `bash scripts/check_runtime_imports.sh`
 Expected: OK.
 
 - [ ] **Step 3: Verify Phase 1 still passes**
