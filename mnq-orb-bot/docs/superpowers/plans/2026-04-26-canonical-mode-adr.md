@@ -105,6 +105,17 @@ after a live-feed data refresh) updates the gate without code changes.
    forward runs against demo (`marketDataType=3`) data. Demo retention and
    feed quality are the floor; further robustness improvements are blocked
    on live verification.
+
+   **Empirical confirmation (2026-04-26):** A fresh 48-month chunked refetch
+   against TWS paper produced a strict superset of the prior pull (697 RTH
+   days vs 686, +11 days from earlier in 2023) but the 2024+ window was
+   bit-identical: same row counts, same zero-volume %, same Tier 1 / A+
+   / Tier 2 metrics down to the cent. IBKR's HMDS for 1-minute MNQ is
+   deterministic for a given (instrument, period). **Refetching cannot
+   improve canonical-window quality; only a live CME feed or alternative
+   source can.** Demo only retains ~9 quarterly contracts back from now
+   (currently MNQM4 forward); 2022 and earlier 2023 contracts return
+   Error 200 and cannot be pulled.
 2. **Account funding to ≥ $3,750.** Hard prerequisite for live ramp.
 3. **Forward journal does not yet exist.** Created by the first run of
    `python scripts/run_causal_paper_forward.py --mode append --require-full-session-clean --start 2024-01-01 --out research/human_edge_replay/paper_forward/forward_journal.csv`.

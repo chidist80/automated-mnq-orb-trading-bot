@@ -2,9 +2,9 @@
 
 ## Data Quality
 
-- RTH dates: 686
+- RTH dates: 697
 - OR-clean dates: 560
-- OR-invalid dates: 126
+- OR-invalid dates: 137
 - Full-session clean dates: 527
 - OR-clean dates with full-session issues: 33
 
@@ -13,18 +13,18 @@
 | quality        |   days |
 |:---------------|-------:|
 | clean          |    560 |
-| zero_volume_or |     96 |
-| late_start     |     30 |
+| zero_volume_or |     98 |
+| late_start     |     39 |
 
 ### Full-Session Quality
 
 | full_session_quality                           |   days |
 |:-----------------------------------------------|-------:|
 | clean                                          |    527 |
-| zero_volume_or_and_post_or                     |     94 |
+| zero_volume_or_and_post_or                     |     96 |
+| zero_volume_post_or+missing_rth_minutes        |     32 |
 | or_clean_but_post_or_zero_volume               |     26 |
-| zero_volume_post_or+missing_rth_minutes        |     25 |
-| zero_volume_or_and_post_or+missing_rth_minutes |      7 |
+| zero_volume_or_and_post_or+missing_rth_minutes |      9 |
 | short_session                                  |      7 |
 
 ## Frozen Replay Check
