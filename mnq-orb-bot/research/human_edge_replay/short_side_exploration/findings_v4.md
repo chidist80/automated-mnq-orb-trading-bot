@@ -1,5 +1,10 @@
 # Short-Side Research Findings v4 — Thesis-First Exhaustive Sweep
 
+> ⚠️ **RETRACTED 2026-04-26.** T7 (atr_pct>1.3 regime) and T1 ATR-stop variants
+> used non-causal atr_pct computation. After causal correction, no thesis
+> survivor improves OOS over canonical Tier 1 alone. See `findings_v7_RETRACTION.md`.
+> Canonical Tier 1 + A+ unaffected.
+
 **Date:** 2026-04-26
 **Window:** 2024-01-01 → 2026-04-24 (581 trading days, strict full-session-clean)
 **Methodology:** 8 distinct theses, 84 variants, per-thesis BH-FDR (q=0.10), IS/OOS at 2025-06-30, slippage stress, combined portfolio.

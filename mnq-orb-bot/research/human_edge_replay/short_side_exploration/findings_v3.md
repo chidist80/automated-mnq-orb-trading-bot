@@ -1,5 +1,10 @@
 # Short-Side Research Findings v3 — Exhaustive Sweep + LONG Regime Filter + Combined Backtest
 
+> ⚠️ **RETRACTED 2026-04-26.** Regime computations (5d_ret, atr_pct, sma20_slope)
+> used same-day daily close/high/low — look-ahead bug. Combined LONG+SHORT
+> recommendations do not improve OOS over canonical Tier 1 alone after causal
+> correction. See `findings_v7_RETRACTION.md`. Canonical Tier 1 + A+ unaffected.
+
 **Date:** 2026-04-26
 **Window:** 2024-01-01 → 2026-04-24 (581 trading days, strict full-session-clean)
 **Methodology:** Plan in `docs/superpowers/plans/2026-04-26-short-side-research-program.md`. This run extends it to 134 short variants (BH-FDR q=0.10), 14 LONG regime kill-switch variants, and combined-portfolio IS/OOS at 2025-06-30 split.

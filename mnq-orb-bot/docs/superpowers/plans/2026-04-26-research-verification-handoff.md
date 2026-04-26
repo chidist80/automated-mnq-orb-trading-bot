@@ -1,5 +1,15 @@
 # Research Verification Handoff — Independent Agent Audit Pack
 
+> **POST-AUDIT UPDATE 2026-04-26:** This handoff was used by an independent
+> verifier whose audit (`research/human_edge_replay/short_side_exploration/INDEPENDENT_VERIFICATION.md`)
+> rendered **FAIL_METHODOLOGY** for the v3-v5 regime/ATR findings. A look-ahead
+> bug in regime computation (5d_ret / atr_pct / ATR-target used same-day daily
+> close/high/low) inflated the OOS metrics. After causal correction, the v5
+> headline recommendation does NOT improve over canonical Tier 1 alone.
+> The full retraction lives at `research/human_edge_replay/short_side_exploration/findings_v7_RETRACTION.md`.
+> The canonical Tier 1 strict and A+ specifications are unaffected. F1-F6 reproduced and stand;
+> F7-F11 reproduced but methodology fails. Phase 6.5 should track ONLY canonical Tier 1 + A+.
+
 **Audit target:** All MNQ ORB short-side and combined-strategy research conducted on
 `research/human-edge-replay` branch from commits `79533dd` through `4f8fd1e`.
 Latest commit at handoff time: `4f8fd1e`.

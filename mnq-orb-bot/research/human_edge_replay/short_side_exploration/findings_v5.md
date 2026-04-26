@@ -1,5 +1,13 @@
 # Short-Side Research Findings v5 — ATR-Targets Win + Final Combined Portfolio
 
+> ⚠️ **RETRACTED 2026-04-26.** ATR targets used same-day ATR_20 (look-ahead).
+> 5d_ret regime gate also non-causal. After causal correction, the headline
+> "Recommendation A" (Tier 1 + S2 ATR-target short) drops from OOS $1,452 / PF 1.80
+> to OOS $555 / PF 1.31, **WORSE than canonical Tier 1 alone ($672 / PF 1.52)**.
+> ATR-target control test (constant target equal to mean ATR target) reproduces
+> the leaked headline — confirms ATR adaptation was not the edge.
+> See `findings_v7_RETRACTION.md`. Canonical Tier 1 + A+ unaffected.
+
 **Date:** 2026-04-26
 **Window:** 2024-01-01 → 2026-04-24 (581 trading days, strict full-session-clean)
 **Methodology:** v5 ran 5 follow-up theses (74 variants), then tested 20 cross-product combinations of LONG (5 configs) × SHORT (4 configs).

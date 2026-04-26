@@ -1,8 +1,19 @@
 # ADR: Canonical Paper-Forward Mode (Phase 6 Causal OR-Retest)
 
 **Date:** 2026-04-26
-**Status:** Accepted
+**Status:** Accepted (canonical Tier 1 + A+); v3-v6 combined/regime additions RETRACTED
 **Tag:** `phase6-causal-or-retest-v1-frozen`
+
+> **2026-04-26 RETRACTION NOTICE.** Subsequent research v3-v6 produced combined
+> LONG+SHORT recommendations that depended on a non-causal regime computation
+> (look-ahead in 5d_ret / atr_pct / ATR-target). The independent verifier
+> identified the bug; my own causal rerun confirmed it (`findings_v7_RETRACTION.md`).
+> All combined-shadow and regime-conditioned recommendations are withdrawn.
+> The canonical Tier 1 strict and A+ specifications below are unaffected —
+> they use only causal signal-bar features (signal-bar VWAP, EMA9 slope at
+> signal time, OR close position from 09:30-09:44 bars). **Phase 6.5
+> paper-forward should track ONLY canonical Tier 1 + A+, NOT the v3-v6
+> combined rules.**
 
 ## Context
 

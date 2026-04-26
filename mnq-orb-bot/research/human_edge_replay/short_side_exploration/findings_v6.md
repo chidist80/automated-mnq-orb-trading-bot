@@ -1,5 +1,14 @@
 # Research Findings v6 — Walk-Forward Stability + External Regimes (VIX/SPX/NDX)
 
+> ⚠️ **PARTIALLY RETRACTED 2026-04-26.** Walk-forward stability of "Recommendation A"
+> was based on bug-driven (look-ahead) trade selection. The "NDX 5d_ret<−1% as LONG
+> halt outperforms MNQ-internal 5d_ret" comparison used the leaked MNQ-internal
+> regime as baseline; the OOS comparison is invalid. External regime triggers
+> (VIX/SPX/NDX from yfinance) were correctly shifted in the external regime map,
+> but combined results that used internal-map regime keys inherited the leak.
+> The negative finding "0 of 10 external short hypotheses cleared" stands.
+> See `findings_v7_RETRACTION.md`. Canonical Tier 1 + A+ unaffected.
+
 **Date:** 2026-04-26
 **Window:** 2024-01-01 → 2026-04-24 (581 trading days, strict full-session-clean)
 **New data:** VIX, SPX, NDX daily bars from Yahoo Finance (Jan 2023 – Apr 2026)
