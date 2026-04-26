@@ -1,0 +1,142 @@
+[
+  {
+    "rule": "H1_failed_long_fade",
+    "rationale": "Long broke above OR_high earlier; close back below in retest window. Tight stop for squeeze risk.",
+    "stage": "1",
+    "stage_pass": false,
+    "full": {
+      "n": 228,
+      "pnl": -3875.5200000000023,
+      "avg": -16.997894736842117,
+      "win_rate": 0.3026315789473684,
+      "pf": 0.5673706137266322,
+      "max_dd": 3884.08000000001
+    }
+  },
+  {
+    "rule": "H2_wide_OR_naive_breakdown",
+    "rationale": "Phase 1 hint: wide-OR shorts had positive sample. Wide ORs reflect news/conviction; breakdowns continue.",
+    "stage": "1",
+    "stage_pass": false,
+    "full": {
+      "n": 36,
+      "pnl": -408.24000000000024,
+      "avg": -11.340000000000007,
+      "win_rate": 0.4166666666666667,
+      "pf": 0.7748436414176515,
+      "max_dd": 595.5600000000004
+    }
+  },
+  {
+    "rule": "H3_vwap_rejection_emadown",
+    "rationale": "Failed bullish reclaim of VWAP with EMA9 confirming downtrend = high-conviction short.",
+    "stage": "1",
+    "stage_pass": false,
+    "full": {
+      "n": 88,
+      "pnl": -37.92000000000036,
+      "avg": -0.43090909090909496,
+      "win_rate": 0.4772727272727273,
+      "pf": 0.9904523068556058,
+      "max_dd": 841.4400000000003
+    }
+  },
+  {
+    "rule": "H4_mirror_below_ema",
+    "rationale": "Symmetric short trigger gated to require price already below 15m EMA9 (downtrend confirmed).",
+    "stage": "1",
+    "stage_pass": false,
+    "full": {
+      "n": 59,
+      "pnl": -234.06000000000014,
+      "avg": -3.9671186440677992,
+      "win_rate": 0.4576271186440678,
+      "pf": 0.9152840514246002,
+      "max_dd": 790.2000000000003
+    }
+  },
+  {
+    "rule": "H5_mirror_tight_stop",
+    "rationale": "Same trigger as canonical mirror, tighter risk to handle bear-trap squeezes.",
+    "stage": "1",
+    "stage_pass": false,
+    "full": {
+      "n": 79,
+      "pnl": -420.86000000000024,
+      "avg": -5.327341772151902,
+      "win_rate": 0.3924050632911392,
+      "pf": 0.8443749260442548,
+      "max_dd": 654.5800000000003
+    }
+  },
+  {
+    "rule": "H6_mirror_weak_5d",
+    "rationale": "Regime filter: only short when MNQ 5-day return < -1% (proxy for weak macro).",
+    "stage": "1",
+    "stage_pass": false,
+    "full": {
+      "n": 24,
+      "pnl": 807.84,
+      "avg": 33.660000000000004,
+      "win_rate": 0.6666666666666666,
+      "pf": 2.169562195969423,
+      "max_dd": 172.68
+    }
+  },
+  {
+    "rule": "H7_naive_afternoon",
+    "rationale": "Late-session breakdowns. Lunch-time low broken in afternoon = continuation pattern.",
+    "stage": "1",
+    "stage_pass": false,
+    "full": {
+      "n": 244,
+      "pnl": -3092.460000000002,
+      "avg": -12.674016393442631,
+      "win_rate": 0.4057377049180328,
+      "pf": 0.7498980978260866,
+      "max_dd": 3439.3200000000015
+    }
+  },
+  {
+    "rule": "H8_failed_long_rsi_overbought",
+    "rationale": "Failed long break with RSI > 70 = distribution at the top.",
+    "stage": "1",
+    "stage_pass": false,
+    "full": {
+      "n": 27,
+      "pnl": -481.1800000000002,
+      "avg": -17.821481481481488,
+      "win_rate": 0.2962962962962963,
+      "pf": 0.5504923117164583,
+      "max_dd": 606.8000000000003
+    }
+  },
+  {
+    "rule": "H9_mirror_early_window",
+    "rationale": "Earlier retest window = more momentum continuation, less mean reversion noise.",
+    "stage": "1",
+    "stage_pass": false,
+    "full": {
+      "n": 82,
+      "pnl": -239.88000000000034,
+      "avg": -2.9253658536585405,
+      "win_rate": 0.4634146341463415,
+      "pf": 0.9368564028049777,
+      "max_dd": 869.2200000000003
+    }
+  },
+  {
+    "rule": "H10_mirror_gap_down",
+    "rationale": "Only short on gap-down opens (today's open < yesterday's close).",
+    "stage": "1",
+    "stage_pass": false,
+    "full": {
+      "n": 30,
+      "pnl": 109.80000000000007,
+      "avg": 3.6600000000000024,
+      "win_rate": 0.5,
+      "pf": 1.084781097984712,
+      "max_dd": 259.02
+    }
+  }
+]
